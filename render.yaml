@@ -1,0 +1,13 @@
+builds:
+  - path: .
+    dockerfile: Dockerfile
+    builder: linux/amd64
+
+env:
+  - PORT=8080
+  - DB_PATH=/data/app.db
+
+disk:
+  name: ai-audio-tools-db
+  mount-path: /data
+  size-gb: 10
