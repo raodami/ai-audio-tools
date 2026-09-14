@@ -222,6 +222,23 @@ func SetupRoutes(r *gin.Engine, s *store.Store) {
 			// TODO: integrate Stripe checkout
 			c.JSON(http.StatusOK, gin.H{"message": "Stripe integration coming soon"})
 		})
+
+		// GET /api/user/analytics — get usage statistics
+		userGroup.GET("/analytics", func(c *gin.Context) {
+			userID, ok := getLoggedInUser(c)
+			if !ok {
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid token"})
+				return
+			}
+
+			analytics, err := s.GetAnalytics(userID, 30)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get analytics"})
+				return
+			}
+
+			c.JSON(http.StatusOK, analytics)
+		})
 	}
 
 	// Audio routes

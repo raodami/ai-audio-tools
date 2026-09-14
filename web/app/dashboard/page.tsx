@@ -6,6 +6,7 @@ export default function Dashboard() {
   const router = useRouter();
   const [user, setUser] = useState<any>(null);
   const [usage, setUsage] = useState<any>(null);
+  const [analytics, setAnalytics] = useState<any>(null);
   const [jobs, setJobs] = useState<any[]>([]);
   const [uploading, setUploading] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -16,7 +17,13 @@ export default function Dashboard() {
     Promise.all([
       fetch('/api/auth/me', { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json()),
       fetch('/api/user/usage', { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json()),
-    ]).then(([u, u2]) => { setUser(u); setUsage(u2); });
+      fetch('/api/user/analytics', { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json().catch(() => null)),
+    ]).then(([u, u2, a]) => { 
+      setUser(u); 
+      setUsage(u2); 
+      setAnalytics(a);
+      if (a?.recent_jobs) setJobs(a.recent_jobs);
+    });
   }, [router]);
 
   async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
@@ -32,7 +39,7 @@ export default function Dashboard() {
       });
       const data = await res.json();
       if (data.job_id) {
-        setJobs(prev => [{ id: data.job_id, name: file.name, status: 'processing', created_at: Date.now() }, ...prev]);
+        setJobs(prev => [{ id: data.job_id, name: file.name, status: 'processing', created_at: Math.floor(Date.now()/1000) }, ...prev]);
         pollJob(data.job_id);
       }
     } finally {
@@ -66,6 +73,31 @@ export default function Dashboard() {
       </header>
 
       <main style={{ maxWidth: 900, margin: '0 auto', padding: '40px 24px' }}>
+        {/* Analytics Overview */}
+        {analytics && (
+          <div style={{ marginBottom: 24 }}>
+            <h2 style={{ marginBottom: 16, fontSize: 18, color: '#f8fafc' }}>Processing Analytics</h2>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 16 }}>
+              <div style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 12, padding: 20 }}>
+                <div style={{ color: '#8899a6', fontSize: 13 }}>Total Jobs</div>
+                <div style={{ fontSize: 32, fontWeight: 700, color: '#533afd' }}>{analytics.total_jobs}</div>
+              </div>
+              <div style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 12, padding: 20 }}>
+                <div style={{ color: '#8899a6', fontSize: 13 }}>Completed</div>
+                <div style={{ fontSize: 32, fontWeight: 700, color: '#4ade80' }}>{analytics.completed_jobs}</div>
+              </div>
+              <div style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 12, padding: 20 }}>
+                <div style={{ color: '#8899a6', fontSize: 13 }}>Failed</div>
+                <div style={{ fontSize: 32, fontWeight: 700, color: '#f87171' }}>{analytics.failed_jobs}</div>
+              </div>
+              <div style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 12, padding: 20 }}>
+                <div style={{ color: '#8899a6', fontSize: 13 }}>Avg Duration</div>
+                <div style={{ fontSize: 32, fontWeight: 700, color: '#f59e0b' }}>{Math.round(analytics.avg_duration_sec)}s</div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Usage Card */}
         <div style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 16, padding: 24, marginBottom: 24 }}>
           <h2 style={{ marginBottom: 16, fontSize: 18 }}>Usage</h2>
@@ -119,8 +151,8 @@ export default function Dashboard() {
             jobs.map(job => (
               <div key={job.id} style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 12, padding: 16, marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div>
-                  <div style={{ fontWeight: 600 }}>{job.file_name}</div>
-                  <div style={{ color: '#8899a6', fontSize: 12 }}>{new Date(job.created_at * 1000).toLocaleString()}</div>
+                  <div style={{ fontWeight: 600 }}>{job.file_name || job.name}</div>
+                  <div style={{ color: '#8899a6', fontSize: 12 }}>{new Date((job.created_at || job.created_at) * 1000).toLocaleString()}</div>
                 </div>
                 <span style={{ padding: '4px 12px', borderRadius: 20, fontSize: 12, fontWeight: 600, background: job.status === 'completed' ? 'rgba(74,222,128,0.2)' : job.status === 'processing' ? 'rgba(83,58,253,0.2)' : 'rgba(239,68,68,0.2)', color: job.status === 'completed' ? '#4ade80' : job.status === 'processing' ? '#533afd' : '#f87171' }}>
                   {job.status}
