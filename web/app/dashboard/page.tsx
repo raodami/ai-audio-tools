@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import AudioWaveform from '@/components/AudioWaveform';
 
 export default function Dashboard() {
   const router = useRouter();
@@ -60,7 +61,6 @@ export default function Dashboard() {
           status: 'processing'
         })));
         
-        // Poll all jobs
         data.job_ids.forEach((jobId: string) => pollJob(jobId));
       }
     } finally {
@@ -192,14 +192,24 @@ export default function Dashboard() {
             <div style={{ color: '#8899a6', textAlign: 'center', padding: 40 }}>No jobs yet. Upload an audio file to get started.</div>
           ) : (
             jobs.map(job => (
-              <div key={job.id} style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 12, padding: 16, marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div>
-                  <div style={{ fontWeight: 600 }}>{job.file_name || job.name}</div>
-                  <div style={{ color: '#8899a6', fontSize: 12 }}>{new Date((job.created_at || job.created_at) * 1000).toLocaleString()}</div>
+              <div key={job.id} style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 12, padding: 16, marginBottom: 8 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                  <div>
+                    <div style={{ fontWeight: 600 }}>{job.file_name || job.name}</div>
+                    <div style={{ color: '#8899a6', fontSize: 12 }}>{new Date((job.created_at || job.created_at) * 1000).toLocaleString()}</div>
+                  </div>
+                  <span style={{ padding: '4px 12px', borderRadius: 20, fontSize: 12, fontWeight: 600, background: job.status === 'completed' ? 'rgba(74,222,128,0.2)' : job.status === 'processing' ? 'rgba(83,58,253,0.2)' : 'rgba(239,68,68,0.2)', color: job.status === 'completed' ? '#4ade80' : job.status === 'processing' ? '#533afd' : '#f87171' }}>
+                    {job.status}
+                  </span>
                 </div>
-                <span style={{ padding: '4px 12px', borderRadius: 20, fontSize: 12, fontWeight: 600, background: job.status === 'completed' ? 'rgba(74,222,128,0.2)' : job.status === 'processing' ? 'rgba(83,58,253,0.2)' : 'rgba(239,68,68,0.2)', color: job.status === 'completed' ? '#4ade80' : job.status === 'processing' ? '#533afd' : '#f87171' }}>
-                  {job.status}
-                </span>
+                {job.status === 'completed' && job.result && (
+                  <div style={{ marginTop: 12 }}>
+                    <AudioWaveform audioUrl={`/api/audio/${job.id}/download`} height={60} />
+                    <div style={{ marginTop: 8, color: '#e2e8f0', fontSize: 13, whiteSpace: 'pre-wrap' }}>
+                      {typeof job.result === 'string' ? job.result.substring(0, 200) + '...' : ''}
+                    </div>
+                  </div>
+                )}
               </div>
             ))
           )}
