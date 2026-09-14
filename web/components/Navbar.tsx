@@ -39,7 +39,7 @@ export default function Navbar() {
         </Link>
         
         <div style={{ display: 'flex', alignItems: 'center', gap: 32 }}>
-          <Link href="#features" style={{ color: '#8899a6', textDecoration: 'none', fontSize: 15, hover: { color: '#fff' } }}>Features</Link>
+          <Link href="#features" style={{ color: '#8899a6', textDecoration: 'none', fontSize: 15 }}>Features</Link>
           <Link href="#pricing" style={{ color: '#8899a6', textDecoration: 'none', fontSize: 15 }}>Pricing</Link>
           <Link href="#about" style={{ color: '#8899a6', textDecoration: 'none', fontSize: 15 }}>About</Link>
           
