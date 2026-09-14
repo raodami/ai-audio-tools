@@ -133,7 +133,7 @@ export default function Dashboard() {
           <div style={{ border: '2px dashed rgba(255,255,255,0.2)', borderRadius: 12, padding: 40, textAlign: 'center', cursor: 'pointer', transition: 'all 0.2s' }}
             onClick={() => document.getElementById('file-input')?.click()}
             onMouseEnter={e => (e.currentTarget.style.borderColor = '#533afd')}
-            onMouseLeave={e => (e.currentTarget.style.borderColor = 'rgba(255,255,255,0.2)'}>
+            onMouseLeave={e => (e.currentTarget.style.borderColor = 'rgba(255,255,255,0.2)')}>
             <div style={{ fontSize: 40, marginBottom: 12 }}>🎙️</div>
             <div style={{ color: '#fff', fontSize: 16, fontWeight: 600 }}>{selectedFile ? selectedFile.name : 'Click to upload audio'}</div>
             <div style={{ color: '#8899a6', fontSize: 13, marginTop: 4 }}>MP3, WAV, M4A, FLAC, OGG, AAC</div>
