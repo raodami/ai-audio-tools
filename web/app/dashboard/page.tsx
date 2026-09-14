@@ -1,21 +1,135 @@
+'use client';
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
+
 export default function Dashboard() {
+  const router = useRouter();
+  const [user, setUser] = useState<any>(null);
+  const [usage, setUsage] = useState<any>(null);
+  const [jobs, setJobs] = useState<any[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    if (!token) { router.push('/login'); return; }
+    Promise.all([
+      fetch('/api/auth/me', { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json()),
+      fetch('/api/user/usage', { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json()),
+    ]).then(([u, u2]) => { setUser(u); setUsage(u2); });
+  }, [router]);
+
+  async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setSelectedFile(file);
+    setUploading(true);
+    const form = new FormData();
+    form.append('audio', file);
+    try {
+      const res = await fetch('/api/audio/upload', {
+        method: 'POST', headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }, body: form,
+      });
+      const data = await res.json();
+      if (data.job_id) {
+        setJobs(prev => [{ id: data.job_id, name: file.name, status: 'processing', created_at: Date.now() }, ...prev]);
+        pollJob(data.job_id);
+      }
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function pollJob(jobId: string) {
+    const token = localStorage.getItem('token');
+    for (let i = 0; i < 10; i++) {
+      await new Promise(r => setTimeout(r, 2000));
+      const res = await fetch(`/api/audio/${jobId}`, { headers: { Authorization: `Bearer ${token}` } });
+      const job = await res.json();
+      setJobs(prev => prev.map(j => j.id === jobId ? { ...j, ...job } : j));
+      if (job.status === 'completed' || job.status === 'failed') break;
+    }
+  }
+
+  if (!user) return <div style={{ padding: 40, color: '#8899a6' }}>Loading...</div>;
+
   return (
-    <div style={{ padding: '40px', maxWidth: '800px', margin: '0 auto' }}>
-      <h1 style={{ marginBottom: 24 }}>Dashboard</h1>
-      <div style={{ background: 'rgba(255,255,255,0.05)', borderRadius: 12, padding: 24, marginBottom: 24 }}>
-        <h3 style={{ marginBottom: 16 }}>Upload Audio</h3>
-        <input type="file" accept="audio/*" style={{ marginBottom: 16, display: 'block' }} />
-        <button style={{ background: '#533afd', color: 'white', border: 'none', padding: '10px 20px', borderRadius: 8, cursor: 'pointer' }}>
-          Process
-        </button>
-      </div>
-      <div style={{ background: 'rgba(255,255,255,0.05)', borderRadius: 12, padding: 24 }}>
-        <h3 style={{ marginBottom: 16 }}>Usage</h3>
-        <p style={{ color: '#8899a6' }}>Free: 30 min/month</p>
-        <div style={{ background: 'rgba(255,255,255,0.1)', borderRadius: 8, height: 8, marginTop: 8 }}>
-          <div style={{ background: '#533afd', width: '0%', height: '100%', borderRadius: 8 }} />
+    <div style={{ minHeight: '100vh', background: '#061b31' }}>
+      {/* Header */}
+      <header style={{ borderBottom: '1px solid rgba(255,255,255,0.1)', padding: '16px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', backdropFilter: 'blur(10px)', position: 'sticky', top: 0, background: 'rgba(6,27,49,0.9)', zIndex: 100 }}>
+        <span style={{ fontSize: 20, fontWeight: 700, color: '#533afd' }}>🎵 AudioAI</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+          <span style={{ color: '#8899a6', fontSize: 14 }}>{user.email}</span>
+          {user.is_pro && <span style={{ background: 'linear-gradient(135deg, #533afd, #7c5cfc)', padding: '4px 12px', borderRadius: 20, fontSize: 12, fontWeight: 600 }}>PRO</span>}
+          <button onClick={() => { localStorage.removeItem('token'); router.push('/login'); }} style={{ background: 'none', border: '1px solid rgba(255,255,255,0.2)', color: '#8899a6', padding: '8px 16px', borderRadius: 8, cursor: 'pointer' }}>Logout</button>
         </div>
-      </div>
+      </header>
+
+      <main style={{ maxWidth: 900, margin: '0 auto', padding: '40px 24px' }}>
+        {/* Usage Card */}
+        <div style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 16, padding: 24, marginBottom: 24 }}>
+          <h2 style={{ marginBottom: 16, fontSize: 18 }}>Usage</h2>
+          <div style={{ display: 'flex', gap: 32 }}>
+            <div>
+              <div style={{ color: '#8899a6', fontSize: 13 }}>Free Quota</div>
+              <div style={{ fontSize: 32, fontWeight: 700, color: usage?.remaining > 0 ? '#4ade80' : '#f87171' }}>{usage?.remaining_min ?? 30}</div>
+              <div style={{ color: '#8899a6', fontSize: 12 }}>min remaining</div>
+            </div>
+            <div>
+              <div style={{ color: '#8899a6', fontSize: 13 }}>Used</div>
+              <div style={{ fontSize: 32, fontWeight: 700 }}>{usage?.usage_minutes ?? 0}</div>
+              <div style={{ color: '#8899a6', fontSize: 12 }}>min used</div>
+            </div>
+            {user.is_pro && (
+              <div>
+                <div style={{ color: '#4ade80', fontSize: 13 }}>Pro Plan</div>
+                <div style={{ fontSize: 24, fontWeight: 700 }}>∞</div>
+                <div style={{ color: '#8899a6', fontSize: 12 }}>unlimited</div>
+              </div>
+            )}
+          </div>
+          {!user.is_pro && (
+            <button style={{ marginTop: 16, padding: '10px 24px', background: 'linear-gradient(135deg, #533afd, #7c5cfc)', border: 'none', borderRadius: 8, color: '#fff', fontWeight: 600, cursor: 'pointer' }}>
+              Upgrade to Pro — $9.9/mo
+            </button>
+          )}
+        </div>
+
+        {/* Upload Card */}
+        <div style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 16, padding: 24, marginBottom: 24 }}>
+          <h2 style={{ marginBottom: 16, fontSize: 18 }}>Upload Audio</h2>
+          <div style={{ border: '2px dashed rgba(255,255,255,0.2)', borderRadius: 12, padding: 40, textAlign: 'center', cursor: 'pointer', transition: 'all 0.2s' }}
+            onClick={() => document.getElementById('file-input')?.click()}
+            onMouseEnter={e => (e.currentTarget.style.borderColor = '#533afd')}
+            onMouseLeave={e => (e.currentTarget.style.borderColor = 'rgba(255,255,255,0.2)'}>
+            <div style={{ fontSize: 40, marginBottom: 12 }}>🎙️</div>
+            <div style={{ color: '#fff', fontSize: 16, fontWeight: 600 }}>{selectedFile ? selectedFile.name : 'Click to upload audio'}</div>
+            <div style={{ color: '#8899a6', fontSize: 13, marginTop: 4 }}>MP3, WAV, M4A, FLAC, OGG, AAC</div>
+          </div>
+          <input id="file-input" type="file" accept="audio/*" style={{ display: 'none' }} onChange={handleUpload} />
+          {uploading && <div style={{ marginTop: 12, color: '#533afd' }}>⏳ Processing...</div>}
+        </div>
+
+        {/* Jobs List */}
+        <div>
+          <h2 style={{ marginBottom: 16, fontSize: 18 }}>Recent Jobs</h2>
+          {jobs.length === 0 ? (
+            <div style={{ color: '#8899a6', textAlign: 'center', padding: 40 }}>No jobs yet. Upload an audio file to get started.</div>
+          ) : (
+            jobs.map(job => (
+              <div key={job.id} style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 12, padding: 16, marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <div style={{ fontWeight: 600 }}>{job.file_name}</div>
+                  <div style={{ color: '#8899a6', fontSize: 12 }}>{new Date(job.created_at * 1000).toLocaleString()}</div>
+                </div>
+                <span style={{ padding: '4px 12px', borderRadius: 20, fontSize: 12, fontWeight: 600, background: job.status === 'completed' ? 'rgba(74,222,128,0.2)' : job.status === 'processing' ? 'rgba(83,58,253,0.2)' : 'rgba(239,68,68,0.2)', color: job.status === 'completed' ? '#4ade80' : job.status === 'processing' ? '#533afd' : '#f87171' }}>
+                  {job.status}
+                </span>
+              </div>
+            ))
+          )}
+        </div>
+      </main>
     </div>
   );
 }

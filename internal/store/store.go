@@ -220,7 +220,11 @@ func (s *Store) UpdateJobStatus(id, status, result string) error {
 	return err
 }
 
-// GetJob retrieves a job by ID
+// MakeProUser sets a user as pro subscriber
+func (s *Store) SetUserPro(userID string, isPro bool) error {
+	_, err := s.db.Exec("UPDATE users SET is_pro = ? WHERE id = ?", isPro, userID)
+	return err
+}
 func (s *Store) GetJob(id string) (map[string]interface{}, error) {
 	var job struct {
 		ID        string `json:"id"`
