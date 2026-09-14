@@ -9,7 +9,8 @@ export default function Dashboard() {
   const [analytics, setAnalytics] = useState<any>(null);
   const [jobs, setJobs] = useState<any[]>([]);
   const [uploading, setUploading] = useState(false);
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [uploadProgress, setUploadProgress] = useState<{id: string, name: string, status: string}[]>([]);
 
   useEffect(() => {
     const token = localStorage.getItem('token');
@@ -27,20 +28,40 @@ export default function Dashboard() {
   }, [router]);
 
   async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setSelectedFile(file);
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    
+    const fileArray = Array.from(files);
+    setSelectedFiles(fileArray);
     setUploading(true);
+    setUploadProgress(fileArray.map(f => ({ id: '', name: f.name, status: 'uploading' })));
+    
     const form = new FormData();
-    form.append('audio', file);
+    fileArray.forEach(file => form.append('audio', file));
+    
     try {
       const res = await fetch('/api/audio/upload', {
         method: 'POST', headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }, body: form,
       });
       const data = await res.json();
-      if (data.job_id) {
-        setJobs(prev => [{ id: data.job_id, name: file.name, status: 'processing', created_at: Math.floor(Date.now()/1000) }, ...prev]);
-        pollJob(data.job_id);
+      
+      if (data.job_ids && data.job_ids.length > 0) {
+        const newJobs = data.job_ids.map((id: string, i: number) => ({
+          id,
+          name: fileArray[i]?.name || 'unknown',
+          status: 'processing',
+          created_at: Math.floor(Date.now()/1000)
+        }));
+        
+        setJobs(prev => [...newJobs, ...prev]);
+        setUploadProgress(prev => prev.map((p, i) => ({
+          ...p,
+          id: data.job_ids[i] || p.id,
+          status: 'processing'
+        })));
+        
+        // Poll all jobs
+        data.job_ids.forEach((jobId: string) => pollJob(jobId));
       }
     } finally {
       setUploading(false);
@@ -49,11 +70,12 @@ export default function Dashboard() {
 
   async function pollJob(jobId: string) {
     const token = localStorage.getItem('token');
-    for (let i = 0; i < 10; i++) {
+    for (let i = 0; i < 15; i++) {
       await new Promise(r => setTimeout(r, 2000));
       const res = await fetch(`/api/audio/${jobId}`, { headers: { Authorization: `Bearer ${token}` } });
       const job = await res.json();
       setJobs(prev => prev.map(j => j.id === jobId ? { ...j, ...job } : j));
+      setUploadProgress(prev => prev.map(p => p.id === jobId ? { ...p, status: job.status } : p));
       if (job.status === 'completed' || job.status === 'failed') break;
     }
   }
@@ -135,12 +157,33 @@ export default function Dashboard() {
             onMouseEnter={e => (e.currentTarget.style.borderColor = '#533afd')}
             onMouseLeave={e => (e.currentTarget.style.borderColor = 'rgba(255,255,255,0.2)')}>
             <div style={{ fontSize: 40, marginBottom: 12 }}>🎙️</div>
-            <div style={{ color: '#fff', fontSize: 16, fontWeight: 600 }}>{selectedFile ? selectedFile.name : 'Click to upload audio'}</div>
-            <div style={{ color: '#8899a6', fontSize: 13, marginTop: 4 }}>MP3, WAV, M4A, FLAC, OGG, AAC</div>
+            <div style={{ color: '#fff', fontSize: 16, fontWeight: 600 }}>
+              {selectedFiles.length > 0 ? `${selectedFiles.length} files selected` : 'Click to upload audio'}
+            </div>
+            <div style={{ color: '#8899a6', fontSize: 13, marginTop: 4 }}>MP3, WAV, M4A, FLAC, OGG, AAC (Multiple files supported)</div>
           </div>
-          <input id="file-input" type="file" accept="audio/*" style={{ display: 'none' }} onChange={handleUpload} />
+          <input id="file-input" type="file" accept="audio/*" multiple style={{ display: 'none' }} onChange={handleUpload} />
           {uploading && <div style={{ marginTop: 12, color: '#533afd' }}>⏳ Processing...</div>}
         </div>
+
+        {/* Upload Progress */}
+        {uploadProgress.length > 0 && (
+          <div style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 12, padding: 16, marginBottom: 24 }}>
+            <h3 style={{ marginBottom: 12, fontSize: 14, color: '#f8fafc' }}>Upload Progress</h3>
+            {uploadProgress.map((p, i) => (
+              <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: i < uploadProgress.length - 1 ? '1px solid rgba(255,255,255,0.05)' : 'none' }}>
+                <span style={{ color: '#fff', fontSize: 13 }}>{p.name}</span>
+                <span style={{ 
+                  color: p.status === 'completed' ? '#4ade80' : p.status === 'processing' ? '#533afd' : p.status === 'failed' ? '#f87171' : '#8899a6',
+                  fontSize: 12,
+                  fontWeight: 600
+                }}>
+                  {p.status}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* Jobs List */}
         <div>

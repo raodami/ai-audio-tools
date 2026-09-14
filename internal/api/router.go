@@ -2,6 +2,7 @@ package api
 
 import (
 	"fmt"
+	"mime/multipart"
 	"net/http"
 	"os"
 	"time"
@@ -244,62 +245,67 @@ func SetupRoutes(r *gin.Engine, s *store.Store) {
 	// Audio routes
 	audioGroup := r.Group("/api/audio")
 	{
+		// POST /api/audio/upload — upload single or multiple audio files
 		audioGroup.POST("/upload", func(c *gin.Context) {
 			userID, _ := getLoggedInUser(c)
 			cookieHash := c.GetHeader("X-Session-ID")
 
-			// Check quota
-			allowed, remaining, err := s.CheckQuota(userID, cookieHash)
+			// Handle multipart upload (single or multiple)
+			form, err := c.MultipartForm()
 			if err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-				return
-			}
-			if !allowed {
-				c.JSON(http.StatusForbidden, gin.H{"error": "quota exceeded", "remaining_min": remaining})
+				c.JSON(http.StatusBadRequest, gin.H{"error": "failed to parse form"})
 				return
 			}
 
-			// Handle multipart upload
-			file, err := c.FormFile("audio")
-			if err != nil {
-				c.JSON(http.StatusBadRequest, gin.H{"error": "file is required"})
-				return
+			files := form.File["audio"]
+			if len(files) == 0 {
+				// Try single file for backward compatibility
+				file, err := c.FormFile("audio")
+				if err != nil {
+					c.JSON(http.StatusBadRequest, gin.H{"error": "no audio file provided"})
+					return
+				}
+				files = []*multipart.FileHeader{file}
 			}
 
-			// Validate file type
-			ext := getFileExtension(file.Filename)
 			allowedExts := map[string]bool{
 				".mp3": true, ".wav": true, ".m4a": true, ".flac": true,
 				".ogg": true, ".aac": true, ".mp4": true,
 			}
-			if !allowedExts[ext] {
-				c.JSON(http.StatusBadRequest, gin.H{"error": "unsupported file type"})
-				return
+
+			var jobIDs []string
+			for _, file := range files {
+				ext := getFileExtension(file.Filename)
+				if !allowedExts[ext] {
+					continue // Skip unsupported files
+				}
+
+				jobID := uuid.New().String()
+				if err := s.CreateJob(jobID, userID, cookieHash, file.Filename, file.Size); err != nil {
+					continue
+				}
+
+				os.MkdirAll("uploads", 0755)
+				dst := fmt.Sprintf("uploads/%s%s", jobID, ext)
+				if err := c.SaveUploadedFile(file, dst); err != nil {
+					s.UpdateJobStatus(jobID, "failed", err.Error())
+					continue
+				}
+
+				go processAudioAsync(s, jobID, dst, userID, cookieHash)
+				jobIDs = append(jobIDs, jobID)
 			}
 
-			// Create job record first
-			jobID := uuid.New().String()
-			if err := s.CreateJob(jobID, userID, cookieHash, file.Filename, file.Size); err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create job"})
+			if len(jobIDs) == 0 {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "no valid files uploaded"})
 				return
 			}
-
-			// Save file to uploads directory
-			os.MkdirAll("uploads", 0755)
-			dst := fmt.Sprintf("uploads/%s%s", jobID, ext)
-			if err := c.SaveUploadedFile(file, dst); err != nil {
-				s.UpdateJobStatus(jobID, "failed", err.Error())
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save file"})
-				return
-			}
-
-			// TODO: trigger async processing with Deepgram ASR
-			go processAudioAsync(s, jobID, dst, userID, cookieHash)
 
 			c.JSON(http.StatusAccepted, gin.H{
-				"job_id":    jobID,
+				"job_ids":   jobIDs,
+				"total":     len(files),
+				"accepted":  len(jobIDs),
 				"status":    "processing",
-				"file_name": file.Filename,
 			})
 		})
 
