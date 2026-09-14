@@ -47,11 +47,6 @@ export default function Features() {
               borderRadius: 16,
               padding: 32,
               transition: 'all 0.3s ease',
-              hover: {
-                transform: 'translateY(-4px)',
-                border: '1px solid rgba(83,58,253,0.3)',
-                background: 'rgba(83,58,253,0.05)',
-              },
             }}
           >
             <div style={{ fontSize: 40, marginBottom: 20 }}>{f.icon}</div>
