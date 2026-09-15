@@ -11,6 +11,8 @@ import (
 	"github.com/google/uuid"
 	"ai-audio-tools/internal/auth"
 	"ai-audio-tools/internal/store"
+	"ai-audio-tools/internal/processor"
+	"ai-audio-tools/internal/effects"
 )
 
 // RegisterRequest represents a register request
@@ -184,11 +186,11 @@ func SetupRoutes(r *gin.Engine, s *store.Store) {
 			}
 
 			c.JSON(http.StatusOK, gin.H{
-				"id":           user.ID,
-				"email":        user.Email,
-				"is_pro":       user.IsPro,
-				"usage_min":    user.UsageMin,
-				"free_quota":   store.FreeQuota,
+				"id":            user.ID,
+				"email":         user.Email,
+				"is_pro":        user.IsPro,
+				"usage_min":     user.UsageMin,
+				"free_quota":    store.FreeQuota,
 				"remaining_min": getMax(0, store.FreeQuota-user.UsageMin),
 			})
 		})
@@ -228,7 +230,6 @@ func SetupRoutes(r *gin.Engine, s *store.Store) {
 		userGroup.GET("/analytics", func(c *gin.Context) {
 			userID, ok := getLoggedInUser(c)
 			if !ok {
-				c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid token"})
 				return
 			}
 
@@ -302,11 +303,106 @@ func SetupRoutes(r *gin.Engine, s *store.Store) {
 			}
 
 			c.JSON(http.StatusAccepted, gin.H{
-				"job_ids":   jobIDs,
-				"total":     len(files),
-				"accepted":  len(jobIDs),
-				"status":    "processing",
+				"job_ids":  jobIDs,
+				"total":    len(files),
+				"accepted": len(jobIDs),
+				"status":   "processing",
 			})
+		})
+
+		// POST /api/audio/submit — submit audio for processing with options
+		audioGroup.POST("/submit", func(c *gin.Context) {
+			userID, _ := getLoggedInUser(c)
+			cookieHash := c.GetHeader("X-Session-ID")
+
+			type SubmitRequest struct {
+				Language string `json:"language"`
+				Model    string `json:"model"`
+			}
+			var req SubmitRequest
+			if err := c.ShouldBindJSON(&req); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+				return
+			}
+
+			file, err := c.FormFile("audio")
+			if err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "file is required"})
+				return
+			}
+
+			ext := getFileExtension(file.Filename)
+			jobID := uuid.New().String()
+			if err := s.CreateJob(jobID, userID, cookieHash, file.Filename, file.Size); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create job"})
+				return
+			}
+
+			os.MkdirAll("uploads", 0755)
+			dst := fmt.Sprintf("uploads/%s%s", jobID, ext)
+			if err := c.SaveUploadedFile(file, dst); err != nil {
+				s.UpdateJobStatus(jobID, "failed", err.Error())
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save file"})
+				return
+			}
+
+			go processAudioAsyncWithOptions(s, jobID, dst, userID, cookieHash, req.Language, req.Model)
+
+			c.JSON(http.StatusAccepted, gin.H{
+				"job_id":    jobID,
+				"status":    "processing",
+				"file_name": file.Filename,
+			})
+		})
+
+		// GET /api/audio/languages — get supported languages
+		audioGroup.GET("/languages", func(c *gin.Context) {
+			c.JSON(http.StatusOK, gin.H{"languages": processor.GetSupportedLanguages()})
+		})
+
+		// GET /api/audio/models — get available transcription models
+		audioGroup.GET("/models", func(c *gin.Context) {
+			c.JSON(http.StatusOK, gin.H{"models": processor.GetTranscriptionModels()})
+		})
+
+		// GET /api/audio/effects — get available audio effects
+		audioGroup.GET("/effects", func(c *gin.Context) {
+			c.JSON(http.StatusOK, gin.H{"effects": effects.GetAvailableEffects()})
+		})
+
+		// GET /api/audio/:id/subtitle — generate subtitle for job
+		audioGroup.GET("/:id/subtitle", func(c *gin.Context) {
+			jobID := c.Param("id")
+			format := c.Query("format")
+			if format == "" {
+				format = "srt"
+			}
+
+			job, err := s.GetJob(jobID)
+			if err != nil {
+				c.JSON(http.StatusNotFound, gin.H{"error": "job not found"})
+				return
+			}
+
+			result := job["result"]
+			if result == nil {
+				c.JSON(http.StatusNotFound, gin.H{"error": "no result found"})
+				return
+			}
+
+			resultStr, _ := result.(string)
+			if resultStr == "" {
+				c.JSON(http.StatusNotFound, gin.H{"error": "no transcript available"})
+				return
+			}
+
+			subtitle, err := processor.GenerateSubtitle(resultStr, 0, format)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				return
+			}
+
+			c.JSON(http.StatusOK, gin.H{"content": subtitle, "format": format})
 		})
 
 		audioGroup.GET("/:id", func(c *gin.Context) {
@@ -326,6 +422,14 @@ func processAudioAsync(s *store.Store, jobID, filePath, userID, cookieHash strin
 	// TODO: implement Deepgram transcription + DeepSeek summarization
 	// For now, just mark as completed with placeholder
 	result := `{"transcript": "Processing... Connect Deepgram API for real transcription"}`
+	s.UpdateJobStatus(jobID, "completed", result)
+}
+
+// processAudioAsyncWithOptions handles async audio processing with options
+func processAudioAsyncWithOptions(s *store.Store, jobID, filePath, userID, cookieHash, language, model string) {
+	// TODO: implement Deepgram transcription + DeepSeek summarization
+	// For now, just mark as completed with placeholder
+	result := `{"transcript": "Processing...", "language": "` + language + `"}`
 	s.UpdateJobStatus(jobID, "completed", result)
 }
 

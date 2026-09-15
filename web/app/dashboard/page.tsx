@@ -12,19 +12,32 @@ export default function Dashboard() {
   const [uploading, setUploading] = useState(false);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [uploadProgress, setUploadProgress] = useState<{id: string, name: string, status: string}[]>([]);
+  const [languages, setLanguages] = useState<any[]>([]);
+  const [models, setModels] = useState<any[]>([]);
+  const [effects, setEffects] = useState<any[]>([]);
+  const [selectedLanguage, setSelectedLanguage] = useState('auto');
+  const [selectedModel, setSelectedModel] = useState('nova-2');
+  const [showOptions, setShowOptions] = useState(false);
 
   useEffect(() => {
     const token = localStorage.getItem('token');
     if (!token) { router.push('/login'); return; }
+    
     Promise.all([
       fetch('/api/auth/me', { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json()),
       fetch('/api/user/usage', { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json()),
       fetch('/api/user/analytics', { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json().catch(() => null)),
-    ]).then(([u, u2, a]) => { 
+      fetch('/api/audio/languages', { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json().catch(() => ({languages: []}))),
+      fetch('/api/audio/models', { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json().catch(() => ({models: []}))),
+      fetch('/api/audio/effects', { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json().catch(() => ({effects: []}))),
+    ]).then(([u, u2, a, langs, models, eff]) => { 
       setUser(u); 
       setUsage(u2); 
       setAnalytics(a);
       if (a?.recent_jobs) setJobs(a.recent_jobs);
+      setLanguages(langs.languages || []);
+      setModels(models.models || []);
+      setEffects(eff.effects || []);
     });
   }, [router]);
 
@@ -37,31 +50,34 @@ export default function Dashboard() {
     setUploading(true);
     setUploadProgress(fileArray.map(f => ({ id: '', name: f.name, status: 'uploading' })));
     
-    const form = new FormData();
-    fileArray.forEach(file => form.append('audio', file));
+    // Submit with options
+    const formData = new FormData();
+    formData.append('audio', fileArray[0]);
+    formData.append('language', selectedLanguage);
+    formData.append('model', selectedModel);
     
     try {
-      const res = await fetch('/api/audio/upload', {
-        method: 'POST', headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }, body: form,
+      const res = await fetch('/api/audio/submit', {
+        method: 'POST', 
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }, 
+        body: formData,
       });
       const data = await res.json();
       
-      if (data.job_ids && data.job_ids.length > 0) {
-        const newJobs = data.job_ids.map((id: string, i: number) => ({
-          id,
-          name: fileArray[i]?.name || 'unknown',
+      if (data.job_id) {
+        const newJob = {
+          id: data.job_id,
+          name: data.file_name,
           status: 'processing',
-          created_at: Math.floor(Date.now()/1000)
-        }));
+          created_at: Math.floor(Date.now()/1000),
+          language: selectedLanguage,
+          model: selectedModel
+        };
         
-        setJobs(prev => [...newJobs, ...prev]);
-        setUploadProgress(prev => prev.map((p, i) => ({
-          ...p,
-          id: data.job_ids[i] || p.id,
-          status: 'processing'
-        })));
+        setJobs(prev => [newJob, ...prev]);
+        setUploadProgress([{ id: data.job_id, name: data.file_name, status: 'processing' }]);
         
-        data.job_ids.forEach((jobId: string) => pollJob(jobId));
+        pollJob(data.job_id);
       }
     } finally {
       setUploading(false);
@@ -77,6 +93,24 @@ export default function Dashboard() {
       setJobs(prev => prev.map(j => j.id === jobId ? { ...j, ...job } : j));
       setUploadProgress(prev => prev.map(p => p.id === jobId ? { ...p, status: job.status } : p));
       if (job.status === 'completed' || job.status === 'failed') break;
+    }
+  }
+
+  async function downloadSubtitle(jobId: string, format: string) {
+    const token = localStorage.getItem('token');
+    const res = await fetch(`/api/audio/${jobId}/subtitle?format=${format}`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    const data = await res.json();
+    
+    if (data.content) {
+      const blob = new Blob([data.content], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `subtitle.${format}`;
+      a.click();
+      URL.revokeObjectURL(url);
     }
   }
 
@@ -151,7 +185,57 @@ export default function Dashboard() {
 
         {/* Upload Card */}
         <div style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 16, padding: 24, marginBottom: 24 }}>
-          <h2 style={{ marginBottom: 16, fontSize: 18 }}>Upload Audio</h2>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+            <h2 style={{ marginBottom: 0, fontSize: 18 }}>Upload Audio</h2>
+            <button 
+              onClick={() => setShowOptions(!showOptions)}
+              style={{ background: 'none', border: '1px solid rgba(255,255,255,0.2)', color: '#8899a6', padding: '8px 16px', borderRadius: 8, cursor: 'pointer', fontSize: 13 }}
+            >
+              {showOptions ? 'Hide Options' : 'Advanced Options'}
+            </button>
+          </div>
+          
+          {showOptions && (
+            <div style={{ marginBottom: 16, padding: 16, background: 'rgba(0,0,0,0.2)', borderRadius: 8 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                <div>
+                  <label style={{ display: 'block', color: '#8899a6', fontSize: 12, marginBottom: 4 }}>Language</label>
+                  <select 
+                    value={selectedLanguage}
+                    onChange={e => setSelectedLanguage(e.target.value)}
+                    style={{ width: '100%', padding: '8px 12px', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 6, color: '#fff' }}
+                  >
+                    {languages.map((lang: any) => (
+                      <option key={lang.code} value={lang.code}>{lang.native} ({lang.name})</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label style={{ display: 'block', color: '#8899a6', fontSize: 12, marginBottom: 4 }}>Model</label>
+                  <select 
+                    value={selectedModel}
+                    onChange={e => setSelectedModel(e.target.value)}
+                    style={{ width: '100%', padding: '8px 12px', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 6, color: '#fff' }}
+                  >
+                    {models.map((m: any) => (
+                      <option key={m.code} value={m.code}>{m.name}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <div style={{ marginTop: 12 }}>
+                <label style={{ display: 'block', color: '#8899a6', fontSize: 12, marginBottom: 4 }}>Available Effects</label>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                  {effects.map((eff: any) => (
+                    <span key={eff.type} style={{ padding: '4px 12px', background: 'rgba(83,58,253,0.2)', borderRadius: 20, fontSize: 12, color: '#a5b4fc' }}>
+                      {eff.name}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+          
           <div style={{ border: '2px dashed rgba(255,255,255,0.2)', borderRadius: 12, padding: 40, textAlign: 'center', cursor: 'pointer', transition: 'all 0.2s' }}
             onClick={() => document.getElementById('file-input')?.click()}
             onMouseEnter={e => (e.currentTarget.style.borderColor = '#533afd')}
@@ -196,11 +280,33 @@ export default function Dashboard() {
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
                   <div>
                     <div style={{ fontWeight: 600 }}>{job.file_name || job.name}</div>
-                    <div style={{ color: '#8899a6', fontSize: 12 }}>{new Date((job.created_at || job.created_at) * 1000).toLocaleString()}</div>
+                    <div style={{ color: '#8899a6', fontSize: 12 }}>
+                      {new Date((job.created_at || job.created_at) * 1000).toLocaleString()}
+                      {job.language && <span style={{ marginLeft: 12 }}>🌐 {job.language}</span>}
+                      {job.model && <span style={{ marginLeft: 8 }}>🤖 {job.model}</span>}
+                    </div>
                   </div>
-                  <span style={{ padding: '4px 12px', borderRadius: 20, fontSize: 12, fontWeight: 600, background: job.status === 'completed' ? 'rgba(74,222,128,0.2)' : job.status === 'processing' ? 'rgba(83,58,253,0.2)' : 'rgba(239,68,68,0.2)', color: job.status === 'completed' ? '#4ade80' : job.status === 'processing' ? '#533afd' : '#f87171' }}>
-                    {job.status}
-                  </span>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    {job.status === 'completed' && (
+                      <>
+                        <button 
+                          onClick={() => downloadSubtitle(job.id, 'srt')}
+                          style={{ padding: '4px 12px', background: 'rgba(83,58,253,0.2)', border: '1px solid rgba(83,58,253,0.4)', borderRadius: 6, color: '#a5b4fc', fontSize: 12, cursor: 'pointer' }}
+                        >
+                          SRT
+                        </button>
+                        <button 
+                          onClick={() => downloadSubtitle(job.id, 'vtt')}
+                          style={{ padding: '4px 12px', background: 'rgba(83,58,253,0.2)', border: '1px solid rgba(83,58,253,0.4)', borderRadius: 6, color: '#a5b4fc', fontSize: 12, cursor: 'pointer' }}
+                        >
+                          VTT
+                        </button>
+                      </>
+                    )}
+                    <span style={{ padding: '4px 12px', borderRadius: 20, fontSize: 12, fontWeight: 600, background: job.status === 'completed' ? 'rgba(74,222,128,0.2)' : job.status === 'processing' ? 'rgba(83,58,253,0.2)' : 'rgba(239,68,68,0.2)', color: job.status === 'completed' ? '#4ade80' : job.status === 'processing' ? '#533afd' : '#f87171' }}>
+                      {job.status}
+                    </span>
+                  </div>
                 </div>
                 {job.status === 'completed' && job.result && (
                   <div style={{ marginTop: 12 }}>
