@@ -15,9 +15,13 @@ export default function Dashboard() {
   const [languages, setLanguages] = useState<any[]>([]);
   const [models, setModels] = useState<any[]>([]);
   const [effects, setEffects] = useState<any[]>([]);
+  const [voices, setVoices] = useState<any[]>([]);
   const [selectedLanguage, setSelectedLanguage] = useState('auto');
   const [selectedModel, setSelectedModel] = useState('nova-2');
   const [showOptions, setShowOptions] = useState(false);
+  const [ttsText, setTTSText] = useState('');
+  const [selectedVoice, setSelectedVoice] = useState('');
+  const [generatingTTS, setGeneratingTTS] = useState(false);
 
   useEffect(() => {
     const token = localStorage.getItem('token');
@@ -30,7 +34,8 @@ export default function Dashboard() {
       fetch('/api/audio/languages', { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json().catch(() => ({languages: []}))),
       fetch('/api/audio/models', { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json().catch(() => ({models: []}))),
       fetch('/api/audio/effects', { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json().catch(() => ({effects: []}))),
-    ]).then(([u, u2, a, langs, models, eff]) => { 
+      fetch('/api/audio/voices', { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json().catch(() => ({voices: []}))),
+    ]).then(([u, u2, a, langs, models, eff, voices]) => { 
       setUser(u); 
       setUsage(u2); 
       setAnalytics(a);
@@ -38,6 +43,7 @@ export default function Dashboard() {
       setLanguages(langs.languages || []);
       setModels(models.models || []);
       setEffects(eff.effects || []);
+      setVoices(voices.voices || []);
     });
   }, [router]);
 
@@ -102,7 +108,7 @@ export default function Dashboard() {
       headers: { Authorization: `Bearer ${token}` }
     });
     const data = await res.json();
-    
+
     if (data.content) {
       const blob = new Blob([data.content], { type: 'text/plain' });
       const url = URL.createObjectURL(blob);
@@ -111,6 +117,35 @@ export default function Dashboard() {
       a.download = `subtitle.${format}`;
       a.click();
       URL.revokeObjectURL(url);
+    }
+  }
+
+  async function generateTTS() {
+    if (!ttsText.trim() || !selectedVoice) return;
+
+    setGeneratingTTS(true);
+    const token = localStorage.getItem('token');
+    try {
+      const res = await fetch('/api/audio/tts', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ text: ttsText, voice_id: selectedVoice }),
+      });
+
+      if (res.ok) {
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'tts_output.mp3';
+        a.click();
+        URL.revokeObjectURL(url);
+      }
+    } finally {
+      setGeneratingTTS(false);
     }
   }
 
@@ -181,6 +216,47 @@ export default function Dashboard() {
               Upgrade to Pro — $9.9/mo
             </button>
           )}
+        </div>
+
+        {/* TTS Card */}
+        <div style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 16, padding: 24, marginBottom: 24 }}>
+          <h2 style={{ marginBottom: 16, fontSize: 18 }}>Text to Speech</h2>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <textarea
+              value={ttsText}
+              onChange={e => setTTSText(e.target.value)}
+              placeholder="Enter text to synthesize..."
+              style={{ width: '100%', minHeight: 100, padding: '12px 16px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 8, color: '#fff', fontSize: 14, resize: 'vertical' }}
+            />
+            <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+              <select
+                value={selectedVoice}
+                onChange={e => setSelectedVoice(e.target.value)}
+                style={{ flex: 1, padding: '8px 12px', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 6, color: '#fff' }}
+              >
+                <option value="">Select a voice...</option>
+                {voices.map((v: any) => (
+                  <option key={v.voice_id} value={v.voice_id}>{v.name}</option>
+                ))}
+              </select>
+              <button
+                onClick={generateTTS}
+                disabled={generatingTTS || !ttsText.trim() || !selectedVoice}
+                style={{
+                  padding: '10px 24px',
+                  background: generatingTTS ? 'rgba(83,58,253,0.5)' : 'linear-gradient(135deg, #533afd, #7c5cfc)',
+                  border: 'none',
+                  borderRadius: 8,
+                  color: '#fff',
+                  fontWeight: 600,
+                  cursor: generatingTTS || !ttsText.trim() || !selectedVoice ? 'not-allowed' : 'pointer',
+                  opacity: generatingTTS || !ttsText.trim() || !selectedVoice ? 0.6 : 1
+                }}
+              >
+                {generatingTTS ? '⏳ Generating...' : '🔊 Generate Speech'}
+              </button>
+            </div>
+          </div>
         </div>
 
         {/* Upload Card */}

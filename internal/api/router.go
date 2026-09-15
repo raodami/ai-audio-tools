@@ -370,6 +370,41 @@ func SetupRoutes(r *gin.Engine, s *store.Store) {
 			c.JSON(http.StatusOK, gin.H{"effects": effects.GetAvailableEffects()})
 		})
 
+		// GET /api/audio/voices — get available TTS voices
+		audioGroup.GET("/voices", func(c *gin.Context) {
+			p := processor.NewAudioProcessor()
+			voices, err := p.GetVoices()
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				return
+			}
+			c.JSON(http.StatusOK, gin.H{"voices": voices})
+		})
+
+		// POST /api/audio/tts — text-to-speech synthesis
+		audioGroup.POST("/tts", func(c *gin.Context) {
+			type TTSRequest struct {
+				Text      string `json:"text" binding:"required"`
+				VoiceID   string `json:"voice_id"`
+			}
+			var req TTSRequest
+			if err := c.ShouldBindJSON(&req); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+				return
+			}
+
+			p := processor.NewAudioProcessor()
+			audioData, err := p.SynthesizeTTS(req.Text, req.VoiceID)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				return
+			}
+
+			c.Header("Content-Type", "audio/mpeg")
+			c.Header("Content-Disposition", "attachment; filename=tts_output.mp3")
+			c.Data(http.StatusOK, "audio/mpeg", audioData)
+		})
+
 		// GET /api/audio/:id/subtitle — generate subtitle for job
 		audioGroup.GET("/:id/subtitle", func(c *gin.Context) {
 			jobID := c.Param("id")

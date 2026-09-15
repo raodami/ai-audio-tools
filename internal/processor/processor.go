@@ -10,13 +10,14 @@ import (
 
 // AudioProcessor handles audio processing pipeline
 type AudioProcessor struct {
-	deepgram *llm.DeepgramClient
-	deepseek *llm.DeepSeekClient
+	deepgram   *llm.DeepgramClient
+	deepseek   *llm.DeepSeekClient
+	elevenlabs *llm.ElevenLabsClient
 }
 
 // IsConfigured checks if the processor has API keys configured
 func (p *AudioProcessor) IsConfigured() bool {
-	return p.deepgram.IsConfigured() || p.deepseek.IsConfigured()
+	return p.deepgram.IsConfigured() || p.deepseek.IsConfigured() || p.elevenlabs.IsConfigured()
 }
 
 // ProcessResult holds the result of audio processing
@@ -36,8 +37,9 @@ type ProcessOptions struct {
 // NewAudioProcessor creates a new processor with configured clients
 func NewAudioProcessor() *AudioProcessor {
 	return &AudioProcessor{
-		deepgram: llm.NewDeepgramClient(),
-		deepseek: llm.NewDeepSeekClient(),
+		deepgram:   llm.NewDeepgramClient(),
+		deepseek:   llm.NewDeepSeekClient(),
+		elevenlabs: llm.NewElevenLabsClient(),
 	}
 }
 
@@ -86,6 +88,34 @@ func (p *AudioProcessor) ProcessAudio(audioData []byte, fileName string, opts *P
 	}, nil
 }
 
+// SynthesizeTTS converts text to speech and returns MP3 bytes
+func (p *AudioProcessor) SynthesizeTTS(text string, voiceID string) ([]byte, error) {
+	if !p.elevenlabs.IsConfigured() {
+		return []byte{}, fmt.Errorf("ElevenLabs API key not configured")
+	}
+
+	return p.elevenlabs.Synthesize(text, voiceID)
+}
+
+// GetVoices returns available voices for TTS
+func (p *AudioProcessor) GetVoices() ([]map[string]string, error) {
+	voices, err := p.elevenlabs.ListVoices()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get voices: %w", err)
+	}
+
+	result := make([]map[string]string, 0, len(voices))
+	for _, v := range voices {
+		result = append(result, map[string]string{
+			"voice_id":  v.VoiceID,
+			"name":      v.Name,
+			"description": v.Description,
+		})
+	}
+
+	return result, nil
+}
+
 // GetSupportedLanguages returns list of supported languages
 func GetSupportedLanguages() []map[string]string {
 	return []map[string]string{
@@ -101,7 +131,7 @@ func GetSupportedLanguages() []map[string]string {
 		{"code": "it", "name": "Italian", "native": "Italiano"},
 		{"code": "nl", "name": "Dutch", "native": "Nederlands"},
 		{"code": "ar", "name": "Arabic", "native": "العربية"},
-		{"code": "hi", "name": "Hindi", "native": "हिन्दी"},
+		{"code": "hi", "name": "Hindi", "native": "हिन्दీ"},
 		{"code": "th", "name": "Thai", "native": "ไทย"},
 		{"code": "vi", "name": "Vietnamese", "native": "Tiếng Việt"},
 		{"code": "auto", "name": "Auto-detect", "native": "自动检测"},
