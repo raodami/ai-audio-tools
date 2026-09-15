@@ -14,6 +14,11 @@ type AudioProcessor struct {
 	deepseek *llm.DeepSeekClient
 }
 
+// IsConfigured checks if the processor has API keys configured
+func (p *AudioProcessor) IsConfigured() bool {
+	return p.deepgram.IsConfigured() || p.deepseek.IsConfigured()
+}
+
 // ProcessResult holds the result of audio processing
 type ProcessResult struct {
 	Transcript string  `json:"transcript"`

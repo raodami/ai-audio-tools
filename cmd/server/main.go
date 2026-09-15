@@ -42,7 +42,7 @@ func main() {
 		p := processor.NewAudioProcessor()
 		c.JSON(200, gin.H{
 			"status": "ok",
-			"services": p.GetStatus(),
+			"deepgram": p.IsConfigured(),
 		})
 	})
 
